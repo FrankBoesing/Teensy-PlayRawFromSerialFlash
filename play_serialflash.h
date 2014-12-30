@@ -50,7 +50,7 @@ private:
 	uint32_t length;
 	int16_t prior;
 	volatile uint8_t playing;
-	unsigned int buffer[128];
+	unsigned int buffer[64];
 };
 
 #endif
