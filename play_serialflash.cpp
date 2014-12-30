@@ -53,7 +53,6 @@ void AudioPlaySerialFlash::play(const unsigned int data)
 	format = buffer[0];	
 	next = 0;
 	beginning = data + 4;
-	blocknr = 0;
 	length = format & 0xFFFFFF;
 	playing = format >> 24;	
 }
@@ -222,13 +221,13 @@ void AudioPlaySerialFlash::update(void)
 uint32_t AudioPlaySerialFlash::positionMillis(void)
 {
 	uint8_t p;
-	const uint8_t *n, *b;
+	uint32_t n,b;
 	uint32_t b2m;
 
 	__disable_irq();
 	p = playing;
-	n = (const uint8_t *)next;
-	b = (const uint8_t *)beginning;
+	n = next;
+	b = beginning;
 	__enable_irq();
 	switch (p) {
 	  case 0x81: // 16 bit PCM, 44100 Hz
@@ -251,12 +250,12 @@ uint32_t AudioPlaySerialFlash::positionMillis(void)
 uint32_t AudioPlaySerialFlash::lengthMillis(void)
 {
 	uint8_t p;
-	const uint32_t *b;
+	uint32_t b;
 	uint32_t b2m;
 
 	__disable_irq();
 	p = playing;
-	b = (const uint32_t *)beginning;
+	b = beginning;
 	__enable_irq();
 	switch (p) {
 	  case 0x81: // 16 bit PCM, 44100 Hz
@@ -271,7 +270,7 @@ uint32_t AudioPlaySerialFlash::lengthMillis(void)
 	  default:
 		return 0;
 	}
-	return ((uint64_t)(*(b - 1) & 0xFFFFFF) * b2m) >> 32;
+	return ((uint64_t)((b - 1) & 0xFFFFFF) * b2m) >> 32;
 }
 
 

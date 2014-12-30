@@ -47,7 +47,6 @@ public:
 private:
 	unsigned int next;
 	unsigned int beginning;
-	unsigned int blocknr;
 	uint32_t length;
 	int16_t prior;
 	volatile uint8_t playing;
