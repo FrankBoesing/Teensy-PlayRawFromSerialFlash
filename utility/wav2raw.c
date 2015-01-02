@@ -143,7 +143,6 @@ void wav2raw(FILE *in, FILE *out)
 	fwrite(&tmp32, 4, 1, out);
 	
 	wcount = 1;
-printf("PAD:%d",padlength);
 	// finally, read the audio data
 	while (length > 0) {
 		if (channels == 1) {
