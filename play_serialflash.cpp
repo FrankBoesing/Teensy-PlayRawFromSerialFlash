@@ -29,32 +29,49 @@
 #include "play_serialflash.h"
 #include "utility/dspinst.h"
 
-inline void readSerFlash(uint8_t* buffer, const size_t position, const size_t bytes)
+#define SPICLOCK 30000000
+#define SERFLASH_CS 				6	//Chip Select W25Q128FV SPI Flash
+
+void AudioPlaySerialFlash::flashinit(void)
+{   
+	pinMode(10,OUTPUT);
+	digitalWrite(10, HIGH);
+	pinMode(SERFLASH_CS,OUTPUT);
+	digitalWrite(SERFLASH_CS, HIGH);
+	SPI.setMOSI(7);
+	SPI.setSCK(14);
+	SPI.begin();
+	spisettings = SPISettings(SPICLOCK , MSBFIRST, SPI_MODE0);
+}
+
+inline void AudioPlaySerialFlash::readSerStart(const size_t position) 
 {
+	SPI.beginTransaction(spisettings);
 	digitalWriteFast(SERFLASH_CS, LOW);
 	SPI.transfer(0x0b);//CMD_READ_HIGH_SPEED
 	SPI.transfer((position >> 16) & 0xff);
 	SPI.transfer((position >> 8) & 0xff);
 	SPI.transfer(position & 0xff);
 	SPI.transfer(0);
-	for(unsigned i = 0;i < bytes;i++) {
-		*buffer++ = SPI.transfer(0);
-	}
+}
+
+inline void AudioPlaySerialFlash::readSerDone(void) 
+{
 	digitalWriteFast(SERFLASH_CS, HIGH);
+	SPI.endTransaction();
 }
 
 void AudioPlaySerialFlash::play(const unsigned int data)
 {
-	uint32_t format;
-
-	playing = 0;
+	readSerStart(data);
+	length = SPI.transfer(0);
+	length |= (uint16_t) SPI.transfer(0) <<8;
+	length |= (uint32_t) SPI.transfer(0) <<16;
+	playing = SPI.transfer(0);
+	readSerDone();
 	prior = 0;
-	readSerFlash((uint8_t*)&buffer, data, sizeof(int));
-	format = buffer[0];	
 	next = 0;
 	beginning = data + 4;
-	length = format & 0xFFFFFF;
-	playing = format >> 24;	
 }
 
 void AudioPlaySerialFlash::stop(void)
@@ -66,59 +83,40 @@ extern "C" {
 extern const int16_t ulaw_decode_table[256];
 };
 
-#define SWAP_UINT32(x) (((x) >> 24) | (((x) & 0x00FF0000) >> 8) | (((x) & 0x0000FF00) << 8) | ((x) << 24))
-#define SWAP_UINT32(x) (((x) >> 24) | (((x) & 0x00FF0000) >> 8) | (((x) & 0x0000FF00) << 8) | ((x) << 24))
 
 void AudioPlaySerialFlash::update(void)
 {
 	audio_block_t *block;
-	unsigned int in;
 	int16_t *out;
-	uint32_t tmp32, consumed;
+	uint32_t consumed;
 	int16_t s0, s1, s2, s3, s4;
+	uint16_t a,b;
 	int i;
 
 	if (!playing) return;
 	block = allocate();
 	if (block == NULL) return;
 
-	//Serial.write('.');
-
 	out = block->data;
-	in = 0;
 	s0 = prior;
 	
+	readSerStart(beginning + next);		
+	
 	switch (playing) {
-	  case 0x01: // u-law encoded, 44100 Hz
-		readSerFlash((uint8_t*)&buffer[0], beginning + next, 128);
-		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
-			tmp32 = buffer[in++];
-			*out++ = ulaw_decode_table[(tmp32 >> 0) & 255];
-			*out++ = ulaw_decode_table[(tmp32 >> 8) & 255];
-			*out++ = ulaw_decode_table[(tmp32 >> 16) & 255];
-			*out++ = ulaw_decode_table[(tmp32 >> 24) & 255];
-		}
-		consumed = 128;
-		break;
 
-	  case 0x81: // 16 bit PCM, 44100 Hz		
-		readSerFlash((uint8_t*)&buffer[0], beginning + next, 128);
-		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 2) {
-			tmp32 = buffer[in++];			
-			*out++ = (tmp32 & 65535);
-			*out++ = (tmp32 >> 16);	
+	  case 0x01: // u-law encoded, 44100 Hz		
+		for (i=0; i < AUDIO_BLOCK_SAMPLES; i++) {	
+			*out++ = ulaw_decode_table[SPI.transfer(0)];
 		}
 		consumed = 128;
 		break;
 
 	  case 0x02: // u-law encoded, 22050 Hz 
-		readSerFlash((uint8_t*)&buffer[0], beginning + next, 64);
-		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 8) {
-			tmp32 = buffer[in++];
-			s1 = ulaw_decode_table[(tmp32 >> 0) & 255];
-			s2 = ulaw_decode_table[(tmp32 >> 8) & 255];
-			s3 = ulaw_decode_table[(tmp32 >> 16) & 255];
-			s4 = ulaw_decode_table[(tmp32 >> 24) & 255];
+		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 8) {			
+			s1 = ulaw_decode_table[SPI.transfer(0)];
+			s2 = ulaw_decode_table[SPI.transfer(0)];
+			s3 = ulaw_decode_table[SPI.transfer(0)];
+			s4 = ulaw_decode_table[SPI.transfer(0)];
 			*out++ = (s0 + s1) >> 1;
 			*out++ = s1;
 			*out++ = (s1 + s2) >> 1;
@@ -132,29 +130,12 @@ void AudioPlaySerialFlash::update(void)
 		consumed = 64;
 		break;
 
-	  case 0x82: // 16 bits PCM, 22050 Hz
-		readSerFlash((uint8_t*)&buffer[0], beginning + next, 64);
-		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
-			tmp32 = buffer[in++];
-			s1 = (int16_t)(tmp32 & 65535);
-			s2 = (int16_t)(tmp32 >> 16);
-			*out++ = (s0 + s1) >> 1;
-			*out++ = s1;
-			*out++ = (s1 + s2) >> 1;
-			*out++ = s2;
-			s0 = s2;
-		}
-		consumed = 64;
-		break;
-
-	  case 0x03: // u-law encoded, 11025 Hz
-		readSerFlash((uint8_t*)&buffer[0], beginning + next, 32);
+		case 0x03: // u-law encoded, 11025 Hz
 		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 16) {
-			tmp32 = buffer[in++];
-			s1 = ulaw_decode_table[(tmp32 >> 0) & 255];
-			s2 = ulaw_decode_table[(tmp32 >> 8) & 255];
-			s3 = ulaw_decode_table[(tmp32 >> 16) & 255];
-			s4 = ulaw_decode_table[(tmp32 >> 24) & 255];
+			s1 = ulaw_decode_table[SPI.transfer(0)];
+			s2 = ulaw_decode_table[SPI.transfer(0)];
+			s3 = ulaw_decode_table[SPI.transfer(0)];
+			s4 = ulaw_decode_table[SPI.transfer(0)];
 			*out++ = (s0 * 3 + s1) >> 2;
 			*out++ = (s0 + s1)     >> 1;
 			*out++ = (s0 + s1 * 3) >> 2;
@@ -176,12 +157,40 @@ void AudioPlaySerialFlash::update(void)
 		consumed = 32;
 		break;
 
-	  case 0x83: // 16 bit PCM, 11025 Hz
-		readSerFlash((uint8_t*)&buffer[0], beginning + next, 32);
+		case 0x81: // 16 bit PCM, 44100 Hz	
+		for (i=0; i < AUDIO_BLOCK_SAMPLES; i++) {			
+			a = SPI.transfer(0);
+			b = SPI.transfer(0);		
+			*out++ = a | b<<8;
+		}
+		consumed = 256;
+		break;
+		
+		case 0x82: // 16 bits PCM, 22050 Hz		
+		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
+			a = SPI.transfer(0);
+			b = SPI.transfer(0);	
+			s1 = a | b<<8;
+			a = SPI.transfer(0);
+			b = SPI.transfer(0);	
+			s2 = a | b<<8;			
+			*out++ = (s0 + s1) >> 1;
+			*out++ = s1;
+			*out++ = (s1 + s2) >> 1;
+			*out++ = s2;
+			s0 = s2;
+		}
+		consumed = 128;
+		break;
+
+		case 0x83: // 16 bit PCM, 11025 Hz		
 		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 8) {
-			tmp32 = buffer[in++];
-			s1 = (int16_t)(tmp32 & 65535);
-			s2 = (int16_t)(tmp32 >> 16);
+			a = SPI.transfer(0);
+			b = SPI.transfer(0);	
+			s1 = a | b<<8;
+			a = SPI.transfer(0);
+			b = SPI.transfer(0);	
+			s2 = a | b<<8;					
 			*out++ = (s0 * 3 + s1) >> 2;
 			*out++ = (s0 + s1)     >> 1;
 			*out++ = (s0 + s1 * 3) >> 2;
@@ -192,7 +201,7 @@ void AudioPlaySerialFlash::update(void)
 			*out++ = s2;
 			s0 = s2;
 		}
-		consumed = 32;
+		consumed = 64;
 		break;
 
 	  default:
@@ -200,6 +209,9 @@ void AudioPlaySerialFlash::update(void)
 		playing = 0;
 		return;
 	}
+	
+	readSerDone();
+	
 	prior = s0;
 	next += consumed;
 	if (length > consumed) {
@@ -207,6 +219,7 @@ void AudioPlaySerialFlash::update(void)
 	} else {
 		playing = 0;
 	}
+
 	transmit(block);
 	release(block);
 }

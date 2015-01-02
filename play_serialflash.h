@@ -30,27 +30,31 @@
 #define play_serialflash_h_
 
 #include "AudioStream.h"
-#include "flash_spi.h"
-
-#define SERFLASH_CS 				6	//Chip Select W25Q128FV SPI Flash
+#include "SPI.h"
 
 class AudioPlaySerialFlash : public AudioStream
 {
 public:
-	AudioPlaySerialFlash(void) : AudioStream(0, NULL), playing(0) { flash_init(); }
+	AudioPlaySerialFlash(void) : AudioStream(0, NULL), playing(0) { flashinit(); }
 	void play(const unsigned int data);
 	void stop(void);
 	bool isPlaying(void) { return playing; }
 	uint32_t positionMillis(void);
 	uint32_t lengthMillis(void);
-	virtual void update(void);
+	virtual void update(void);	
+protected:
+	void flashinit(void);
+	void readSerFlash(uint8_t* buffer, const size_t position, const size_t bytes);
+	void readSerStart(const size_t position);
+	void readSerDone(void) ;
 private:
-	unsigned int next;
-	unsigned int beginning;
+	SPISettings spisettings;
+	volatile unsigned int next;
+	volatile unsigned int beginning;
 	uint32_t length;
 	int16_t prior;
-	volatile uint8_t playing;
-	unsigned int buffer[64];
+	volatile uint8_t playing;	
+	void flash_init(void);
 };
 
 #endif
