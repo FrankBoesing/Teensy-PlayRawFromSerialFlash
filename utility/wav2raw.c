@@ -143,7 +143,7 @@ void wav2raw(FILE *in, FILE *out)
 	fwrite(&tmp32, 4, 1, out);
 	
 	wcount = 1;
-
+printf("PAD:%d",padlength);
 	// finally, read the audio data
 	while (length > 0) {
 		if (channels == 1) {
@@ -161,13 +161,15 @@ void wav2raw(FILE *in, FILE *out)
 		}
 		length--;
 	}
+	if (pcm_mode) padlength*=2;
 	while (padlength > 0) {
-		print_byte(out, 0);
+		print_byte(out, 0);		
 		padlength--;
 	}
 	while (bcount > 0) {
 		print_byte(out, 0);
 	}
+
 /*	
 	if (wcount > 0) fprintf(out, "\n");
 	fprintf(out, "};\n");
@@ -289,7 +291,7 @@ int main(int argc, char **argv)
 		filename2samplename();
 		printf("converting: %s  -->  %s\n", filename, samplename);
 		snprintf(buf, sizeof(buf), "%s.raw", samplename);
-		outc = fopen(buf, "w");
+		outc = fopen(buf, "wb");
 		if (outc == NULL) die("unable to write %s", buf);
 		/*
 		snprintf(buf, sizeof(buf), "AudioSample%s.h", samplename);		
