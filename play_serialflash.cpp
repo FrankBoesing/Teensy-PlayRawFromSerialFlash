@@ -214,7 +214,7 @@ void AudioPlaySerialFlash::update(void)
 
 	  default:
 		release(block);
-		playing = 0;
+		stop();
 		return;
 	}
 	
