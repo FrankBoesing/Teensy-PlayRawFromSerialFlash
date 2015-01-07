@@ -28,6 +28,7 @@
  
 #include "play_serialflash.h"
 #include "utility/dspinst.h"
+#include "spi_interrupt.h"
 
 #define SPICLOCK 30000000
 #define SERFLASH_CS 				6	//Chip Select W25Q128FV SPI Flash
@@ -50,7 +51,7 @@ inline void AudioPlaySerialFlash::readSerStart(const size_t position)
 	digitalWriteFast(SERFLASH_CS, LOW);
 	SPI.transfer(0x0b);//CMD_READ_HIGH_SPEED
 	SPI.transfer((position >> 16) & 0xff);
-	SPI.transfer((position >> 8) & 0xff);
+	SPI.transfer((position >> 8) & 0xff); 
 	SPI.transfer(position & 0xff);
 	SPI.transfer(0);
 }
@@ -63,20 +64,27 @@ inline void AudioPlaySerialFlash::readSerDone(void)
 
 void AudioPlaySerialFlash::play(const unsigned int data)
 {
+	int temp;
+	AudioStartUsingSPI();
 	readSerStart(data);
 	length = SPI.transfer(0);
 	length |= (uint16_t) SPI.transfer(0) <<8;
 	length |= (uint32_t) SPI.transfer(0) <<16;
-	playing = SPI.transfer(0);
+	temp = SPI.transfer(0);
 	readSerDone();
 	prior = 0;
 	next = 0;
 	beginning = data + 4;
+	__disable_irq();
+	playing = temp;
+	__enable_irq();
 }
 
 void AudioPlaySerialFlash::stop(void)
-{
+{	__disable_irq();
 	playing = 0;
+	__enable_irq();
+	AudioStopUsingSPI();
 }
 
 extern "C" {
@@ -217,7 +225,7 @@ void AudioPlaySerialFlash::update(void)
 	if (length > consumed) {
 		length -= consumed;
 	} else {
-		playing = 0;
+		stop();
 	}
 
 	transmit(block);
