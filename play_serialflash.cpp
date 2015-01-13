@@ -65,7 +65,7 @@ inline void AudioPlaySerialFlash::readSerDone(void)
 void AudioPlaySerialFlash::play(const unsigned int data)
 {
 	int temp;
-	AudioStartUsingSPI();
+	//AudioStartUsingSPI();
 	readSerStart(data);
 	length = SPI.transfer(0);
 	length |= (uint16_t) SPI.transfer(0) <<8;
@@ -84,7 +84,7 @@ void AudioPlaySerialFlash::stop(void)
 {	__disable_irq();
 	playing = 0;
 	__enable_irq();
-	AudioStopUsingSPI();
+	//AudioStopUsingSPI();
 }
 
 extern "C" {
