@@ -28,21 +28,276 @@
  
 #include "play_serialflash.h"
 #include "utility/dspinst.h"
-#include "spi_interrupt.h"
 
-#define SPICLOCK 30000000
-#define SERFLASH_CS 				6	//Chip Select W25Q128FV SPI Flash
+extern "C" {
+extern const int16_t ulaw_decode_table[256];
+};
+
+
+/*	========================================================================================
+				SPIFIFO.h
+	======================================================================================*/
+#if SERIALFLASH_USE_SPIFIFO
+
+#define SPICLOCK_MAX ((SPI_CTAR_PBR(1) | SPI_CTAR_BR(0) | SPI_CTAR_DBR)) // F_BUS/2 MHz
 
 void AudioPlaySerialFlash::flashinit(void)
 {   
+#if AUDIOBOARD == 1
+	pinMode(10,OUTPUT);
+	digitalWrite(10, HIGH);
+	//CORE_PIN11_CONFIG = PORT_PCR_DSE | PORT_PCR_MUX(2); //MOSI
+	CORE_PIN7_CONFIG = PORT_PCR_DSE | PORT_PCR_MUX(2); //MOSI
+	CORE_PIN12_CONFIG = PORT_PCR_MUX(2); //MISO
+	//CORE_PIN13_CONFIG = PORT_PCR_DSE | PORT_PCR_MUX(2); //SCK
+	CORE_PIN14_CONFIG = PORT_PCR_DSE | PORT_PCR_MUX(2); //SCK
+#else
+	CORE_PIN11_CONFIG = PORT_PCR_DSE | PORT_PCR_MUX(2); //MOSI
+	//CORE_PIN7_CONFIG = PORT_PCR_DSE | PORT_PCR_MUX(2); //MOSI
+	CORE_PIN12_CONFIG = PORT_PCR_MUX(2); //MISO
+	CORE_PIN13_CONFIG = PORT_PCR_DSE | PORT_PCR_MUX(2);   //SCK
+	//CORE_PIN14_CONFIG = PORT_PCR_DSE | PORT_PCR_MUX(2); //SCK	
+#endif
+	
+	SPIFIFO.begin(SERFLASH_CS, SPICLOCK_MAX);
+}
+
+inline void AudioPlaySerialFlash::readSerStart(const size_t position) 
+{
+
+#if 0	
+	delay(1);
+	SPIFIFO.write(0x9F, SPI_CONTINUE);
+	SPIFIFO.write(0, SPI_CONTINUE);
+	SPIFIFO.write(0, SPI_CONTINUE);
+	SPIFIFO.write(0);
+	SPIFIFO.read();
+	Serial.printf("manufacturerID = %x\r\n",SPIFIFO.read());
+	Serial.printf("memoryType = %x\r\n",SPIFIFO.read());
+	Serial.printf("capacity = %x\r\n",SPIFIFO.read());
+#endif
+	
+	SPIFIFO.write16((0xb00 | ((position>>16) & 0xff)), SPI_CONTINUE);//CMD_READ_HIGH_SPEED	
+	SPIFIFO.write16( position, SPI_CONTINUE);
+	SPIFIFO.write(0,SPI_CONTINUE);	
+	SPIFIFO.read();
+	SPIFIFO.read();
+	SPIFIFO.read();
+}
+
+void AudioPlaySerialFlash::play(const unsigned int data)
+{	
+	int temp;	
+	stop();	
+	readSerStart(data);
+	SPIFIFO.write16(0,SPI_CONTINUE);		
+	SPIFIFO.write16(0,SPI_CONTINUE);
+	prior = 0;
+	next = 0;
+	beginning = data + 4;
+	length =__builtin_bswap16(SPIFIFO.read());
+	temp = SPIFIFO.read();
+	length |= (temp & 0xff00) << 8;
+	__disable_irq();
+	playing = temp & 0xff;
+	__enable_irq();
+	//Serial.printf("Length:0x%x Mode: 0x%x\r\n", length, playing);
+}
+
+void AudioPlaySerialFlash::update(void)
+{
+	audio_block_t *block;
+	int16_t *out;
+	uint32_t consumed;
+	int16_t s0, s1, s2, s3, s4;
+	uint16_t a;
+	int i;
+
+	if (!playing) return;
+	block = allocate();
+	if (block == NULL) return;
+	
+//	__disable_irq();
+//	cyc =  ARM_DWT_CYCCNT;
+	readSerStart(beginning + next);		
+	
+	//FIFO 8 Bytes ahead..
+	
+	SPIFIFO.write16(0,SPI_CONTINUE);
+	SPIFIFO.write16(0,SPI_CONTINUE);
+	SPIFIFO.write16(0,SPI_CONTINUE);
+	SPIFIFO.write16(0,SPI_CONTINUE);
+	
+	out = block->data;
+	s0 = prior;
+		
+	switch (playing) {
+
+	  case 0x01: // u-law encoded, 44100 Hz		//3667 cycles 6925
+		for (i=0; i < AUDIO_BLOCK_SAMPLES; i+=2) {	
+			a = SPIFIFO.read();
+			*out++ = ulaw_decode_table[a>>8];
+			*out++ = ulaw_decode_table[a & 0xff];
+			if (i < AUDIO_BLOCK_SAMPLES - 10) {SPIFIFO.write16(0,SPI_CONTINUE);}
+			else
+			if (i < AUDIO_BLOCK_SAMPLES - 8) {SPIFIFO.write16(0);}			
+		}
+		consumed = 128;
+		break;
+
+	  case 0x02: // u-law encoded, 22050 Hz 3730
+		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 8) {			
+			a = SPIFIFO.read();			
+			s1 = ulaw_decode_table[a>>8];
+			s2 = ulaw_decode_table[a & 0xff];
+			*out++ = (s0 + s1) >> 1;
+			*out++ = s1;
+			*out++ = (s1 + s2) >> 1;
+			*out++ = s2;						
+			a = SPIFIFO.read();
+			s3 = ulaw_decode_table[a>>8];
+			s4 = ulaw_decode_table[a & 0xff];			
+			*out++ = (s2 + s3) >> 1;
+			*out++ = s3;
+			*out++ = (s3 + s4) >> 1;
+			*out++ = s4;
+			s0 = s4;
+			if (i < AUDIO_BLOCK_SAMPLES - 8*2) {SPIFIFO.write16(0,SPI_CONTINUE);}
+			if (i < AUDIO_BLOCK_SAMPLES - 8*2-8) {SPIFIFO.write16(0,SPI_CONTINUE);}
+			else			
+			if (i < AUDIO_BLOCK_SAMPLES - 8*2) {SPIFIFO.write16(0);}			
+		}
+		consumed = 64;
+		break;
+
+		case 0x03: // u-law encoded, 11025 Hz 2674
+		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 16) {
+			a = SPIFIFO.read();			
+			s1 = ulaw_decode_table[a>>8];
+			s2 = ulaw_decode_table[a & 0xff];
+			*out++ = (s0 * 3 + s1) >> 2;
+			*out++ = (s0 + s1)     >> 1;
+			*out++ = (s0 + s1 * 3) >> 2;
+			*out++ = s1;
+			*out++ = (s1 * 3 + s2) >> 2;
+			*out++ = (s1 + s2)     >> 1;
+			*out++ = (s1 + s2 * 3) >> 2;
+			*out++ = s2;			
+			a = SPIFIFO.read();
+			s3 = ulaw_decode_table[a>>8];
+			s4 = ulaw_decode_table[a & 0xff];
+			if (i < AUDIO_BLOCK_SAMPLES - 16*2) {SPIFIFO.write16(0,SPI_CONTINUE);}
+			if (i < AUDIO_BLOCK_SAMPLES - 16*2-16) {SPIFIFO.write16(0,SPI_CONTINUE);}
+			else			
+			if (i < AUDIO_BLOCK_SAMPLES - 16*2) {SPIFIFO.write16(0);}	
+			*out++ = (s2 * 3 + s3) >> 2;
+			*out++ = (s2 + s3)     >> 1;
+			*out++ = (s2 + s3 * 3) >> 2;
+			*out++ = s3;
+			*out++ = (s3 * 3 + s4) >> 2;
+			*out++ = (s3 + s4)     >> 1;
+			*out++ = (s3 + s4 * 3) >> 2;
+			*out++ = s4;
+			s0 = s4;
+		}
+		consumed = 32;
+		break;
+		
+		case 0x81: // 16 bit PCM, 44100 Hz	//13310 21608
+		for (i=0; i < AUDIO_BLOCK_SAMPLES; i++) {			
+			a = __builtin_bswap16(SPIFIFO.read());		
+			*out++ = a;
+			if (i < AUDIO_BLOCK_SAMPLES - 5) {SPIFIFO.write16(0,SPI_CONTINUE);}
+			else
+			if (i < AUDIO_BLOCK_SAMPLES - 4) {SPIFIFO.write16(0);}				
+		}		
+		consumed = 256;
+		break;
+		
+		case 0x82: // 16 bits PCM, 22050 Hz		6930
+		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
+			s1 = __builtin_bswap16(SPIFIFO.read());
+			s2 = __builtin_bswap16(SPIFIFO.read());
+			*out++ = (s0 + s1) >> 1;
+			*out++ = s1;
+			*out++ = (s1 + s2) >> 1;
+			*out++ = s2;
+			s0 = s2;
+			if (i < AUDIO_BLOCK_SAMPLES - 4*2) {SPIFIFO.write16(0,SPI_CONTINUE);}
+			if (i < AUDIO_BLOCK_SAMPLES - 4*2-4) {SPIFIFO.write16(0,SPI_CONTINUE);}
+			else			
+			if (i < AUDIO_BLOCK_SAMPLES - 4*2) {SPIFIFO.write16(0);}				
+		}
+		consumed = 128;
+		break;
+
+		case 0x83: // 16 bit PCM, 11025 Hz	3740	
+		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 8) {
+			s1 = __builtin_bswap16(SPIFIFO.read());
+			s2 = __builtin_bswap16(SPIFIFO.read());				
+			*out++ = (s0 * 3 + s1) >> 2;
+			*out++ = (s0 + s1)     >> 1;
+			*out++ = (s0 + s1 * 3) >> 2;
+			*out++ = s1;			
+			*out++ = (s1 * 3 + s2) >> 2;
+			*out++ = (s1 + s2)     >> 1;
+			*out++ = (s1 + s2 * 3) >> 2;
+			*out++ = s2;
+			s0 = s2;	
+			if (i < AUDIO_BLOCK_SAMPLES - 8*2) {SPIFIFO.write16(0,SPI_CONTINUE);}
+			if (i < AUDIO_BLOCK_SAMPLES - 8*2-8) {SPIFIFO.write16(0,SPI_CONTINUE);}
+			else			
+			if (i < AUDIO_BLOCK_SAMPLES - 8*2) {SPIFIFO.write16(0);}	
+		}
+		consumed = 64;
+		break;		
+		
+	  default:
+		release(block);
+		stop();
+		return;
+	}
+	 
+	transmit(block);
+	release(block);
+	
+	prior = s0;
+	next += consumed;
+	
+//	cyc = ARM_DWT_CYCCNT - cyc;
+//	__enable_irq();
+	if (length > consumed) {
+		length -= consumed;
+	} else {
+		stop();
+	}
+
+}
+/*	========================================================================================
+				SPI.h
+	======================================================================================*/
+#else
+#define SPICLOCK_MAX 30000000
+
+void AudioPlaySerialFlash::flashinit(void)
+{   
+#if AUDIOBOARD == 1
 	pinMode(10,OUTPUT);
 	digitalWrite(10, HIGH);
 	pinMode(SERFLASH_CS,OUTPUT);
 	digitalWrite(SERFLASH_CS, HIGH);
 	SPI.setMOSI(7);
+	SPI.setMISO(12);
 	SPI.setSCK(14);
+#else
+	pinMode(SERFLASH_CS,OUTPUT);
+	digitalWrite(SERFLASH_CS, HIGH);
+	SPI.setMOSI(11);
+	SPI.setMISO(12);
+	SPI.setSCK(13);
+#endif	
 	SPI.begin();
-	spisettings = SPISettings(SPICLOCK , MSBFIRST, SPI_MODE0);
+	spisettings = SPISettings(SPICLOCK_MAX , MSBFIRST, SPI_MODE0);
 }
 
 inline void AudioPlaySerialFlash::readSerStart(const size_t position) 
@@ -63,9 +318,10 @@ inline void AudioPlaySerialFlash::readSerDone(void)
 }
 
 void AudioPlaySerialFlash::play(const unsigned int data)
-{
-	int temp;
-	//AudioStartUsingSPI();
+{	
+	int temp;	
+	stop();
+	AudioStartUsingSPI();	
 	readSerStart(data);
 	length = SPI.transfer(0);
 	length |= (uint16_t) SPI.transfer(0) <<8;
@@ -79,19 +335,23 @@ void AudioPlaySerialFlash::play(const unsigned int data)
 	playing = temp;
 	__enable_irq();
 }
+#endif
 
 void AudioPlaySerialFlash::stop(void)
-{	__disable_irq();
-	playing = 0;
-	__enable_irq();
-	//AudioStopUsingSPI();
+{
+	__disable_irq();
+	if (playing) {
+		playing = 0;		
+		__enable_irq();
+		//Serial.printf("%d cycles\r\n",cyc);
+#if !SERIALFLASH_USE_SPIFIFO		
+		AudioStopUsingSPI();		
+#endif		
+	} else
+	__enable_irq();	
 }
 
-extern "C" {
-extern const int16_t ulaw_decode_table[256];
-};
-
-
+#if !SERIALFLASH_USE_SPIFIFO
 void AudioPlaySerialFlash::update(void)
 {
 	audio_block_t *block;
@@ -104,6 +364,9 @@ void AudioPlaySerialFlash::update(void)
 	if (!playing) return;
 	block = allocate();
 	if (block == NULL) return;
+
+//	__disable_irq();
+//	cyc =  ARM_DWT_CYCCNT;
 
 	out = block->data;
 	s0 = prior;
@@ -219,18 +482,24 @@ void AudioPlaySerialFlash::update(void)
 	}
 	
 	readSerDone();
+
+	transmit(block);
+	release(block);
 	
 	prior = s0;
 	next += consumed;
+	
+//	cyc = ARM_DWT_CYCCNT - cyc;
+//	__enable_irq();
+
 	if (length > consumed) {
 		length -= consumed;
 	} else {
 		stop();
 	}
 
-	transmit(block);
-	release(block);
 }
+#endif
 
 
 #define B2M_88200 (uint32_t)((double)4294967296000.0 / AUDIO_SAMPLE_RATE_EXACT / 2.0)

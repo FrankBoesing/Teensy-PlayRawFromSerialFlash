@@ -24,37 +24,67 @@
  * THE SOFTWARE.
  */
 
-// Modified to play from Serial Flash (c) Frank Bösing, 2014/12
+// Modified to play from Serial Flash (c) Frank Bösing, 2014/12, 2015
  
 #ifndef play_serialflash_h_
 #define play_serialflash_h_
+/*
+	Set AUDIOBOARD to 1 if you use the PJRC-Audioboard, else 0
+*/
+#define AUDIOBOARD 1
+/*
+	Set SERIALFLASH_USE_SPIFIFO to 1 if you want to use the FIFO-functionalty, else 0
+	- this is experimental -
+*/
+#define SERIALFLASH_USE_SPIFIFO 1
 
-#include "AudioStream.h"
-#include "SPI.h"
+
+
+#define SERFLASH_CS 			6	//Chip Select pin W25Q128FV SPI Flash
+
+
+
+
+#include <AudioStream.h>
+
+#if SERIALFLASH_USE_SPIFIFO
+#include <Arduino.h>
+#include <SPIFIFO.h>
+#else
+#include <SPI.h>
+#include "spi_interrupt.h"
+#endif 
 
 class AudioPlaySerialFlash : public AudioStream
 {
 public:
 	AudioPlaySerialFlash(void) : AudioStream(0, NULL), playing(0) { flashinit(); }
 	void play(const unsigned int data);
+	void loop(const unsigned int data);
 	void stop(void);
-	bool isPlaying(void) { return playing; }
+	bool isPlaying(void);	
+	bool pause(bool paused);
 	uint32_t positionMillis(void);
 	uint32_t lengthMillis(void);
-	virtual void update(void);	
+	virtual void update(void);		
 protected:
 	void flashinit(void);
 	void readSerFlash(uint8_t* buffer, const size_t position, const size_t bytes);
 	void readSerStart(const size_t position);
 	void readSerDone(void) ;
 private:
+#if !SERIALFLASH_USE_SPIFIFO
 	SPISettings spisettings;
-	volatile unsigned int next;
-	volatile unsigned int beginning;
+#endif	
+	unsigned int next;
+	unsigned int beginning;
 	uint32_t length;
 	int16_t prior;
-	volatile uint8_t playing;	
-	void flash_init(void);
+	volatile uint8_t playing;
+	bool paused;
+	bool loops;
+	void flash_init(void);	
+	//uint32_t cyc;
 };
 
 #endif
