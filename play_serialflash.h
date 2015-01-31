@@ -25,7 +25,7 @@
  */
 
 // Modified to play from Serial Flash (c) Frank Bösing, 2014/12, 2015
- 
+
 #ifndef play_serialflash_h_
 #define play_serialflash_h_
 /*
@@ -53,7 +53,7 @@
 #else
 #include <SPI.h>
 #include "spi_interrupt.h"
-#endif 
+#endif
 
 class AudioPlaySerialFlash : public AudioStream
 {
@@ -62,11 +62,11 @@ public:
 	void play(const unsigned int data);
 	void loop(const unsigned int data);
 	void stop(void);
-	bool isPlaying(void);	
+	bool isPlaying(void);
 	bool pause(bool paused);
 	uint32_t positionMillis(void);
 	uint32_t lengthMillis(void);
-	virtual void update(void);		
+	virtual void update(void);
 protected:
 	void flashinit(void);
 	void readSerFlash(uint8_t* buffer, const size_t position, const size_t bytes);
@@ -75,15 +75,16 @@ protected:
 private:
 #if !SERIALFLASH_USE_SPIFIFO
 	SPISettings spisettings;
-#endif	
+#endif
 	unsigned int next;
 	unsigned int beginning;
 	uint32_t length;
 	int16_t prior;
-	volatile uint8_t playing;
-	bool paused;
-	bool loops;
-	void flash_init(void);	
+	uint8_t playing;
+	//bool paused;
+	//bool loops;
+	void flash_init(void);
+	uint32_t calcMillis(uint32_t position);
 	//uint32_t cyc;
 };
 
