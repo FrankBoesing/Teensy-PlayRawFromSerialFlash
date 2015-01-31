@@ -60,10 +60,10 @@ class AudioPlaySerialFlash : public AudioStream
 public:
 	AudioPlaySerialFlash(void) : AudioStream(0, NULL), playing(0) { flashinit(); }
 	void play(const unsigned int data);
-	void loop(const unsigned int data);
+	//void loop(const unsigned int data);
 	void stop(void);
 	bool isPlaying(void);
-	bool pause(bool paused);
+	bool pause(bool _paused);
 	uint32_t positionMillis(void);
 	uint32_t lengthMillis(void);
 	virtual void update(void);
@@ -71,7 +71,8 @@ protected:
 	void flashinit(void);
 	void readSerFlash(uint8_t* buffer, const size_t position, const size_t bytes);
 	void readSerStart(const size_t position);
-	void readSerDone(void) ;
+	void readSerDone(void);
+	uint32_t calcMillis(uint32_t position);
 private:
 #if !SERIALFLASH_USE_SPIFIFO
 	SPISettings spisettings;
@@ -81,10 +82,9 @@ private:
 	uint32_t length;
 	int16_t prior;
 	uint8_t playing;
-	//bool paused;
+	bool paused;
 	//bool loops;
 	void flash_init(void);
-	uint32_t calcMillis(uint32_t position);
 	//uint32_t cyc;
 };
 

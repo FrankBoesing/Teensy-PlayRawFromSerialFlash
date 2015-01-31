@@ -113,6 +113,7 @@ void AudioPlaySerialFlash::update(void)
 	uint16_t a;
 	int i;
 
+	if (paused) return;
 	if (!playing) return;
 	block = allocate();
 	if (block == NULL) return;
@@ -337,6 +338,7 @@ void AudioPlaySerialFlash::play(const unsigned int data)
 void AudioPlaySerialFlash::stop(void)
 {
 	__disable_irq();
+	paused = false;
 	if (playing) {
 		playing = 0;
 		__enable_irq();
@@ -358,6 +360,7 @@ void AudioPlaySerialFlash::update(void)
 	uint16_t a,b;
 	int i;
 
+	if (paused) return;
 	if (!playing) return;
 	block = allocate();
 	if (block == NULL) return;
@@ -532,4 +535,16 @@ uint32_t AudioPlaySerialFlash::lengthMillis(void)
 	return calcMillis(length);
 }
 
+bool AudioPlaySerialFlash::isPlaying(void)
+{
+	return playing > 0;
+}
 
+bool AudioPlaySerialFlash::pause(bool _paused)
+{
+	__disable_irq();
+	bool p = (playing > 0)?_paused:false;
+	paused = p;
+	__enable_irq();
+	return p;
+}
