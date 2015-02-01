@@ -27,7 +27,7 @@
 // Modified to play from Serial Flash (c) Frank Bösing, 2014/12
 
 #include "play_serialflash.h"
-#include "utility/dspinst.h"
+#include <arm_math.h>
 
 extern "C" {
 extern const int16_t ulaw_decode_table[256];
@@ -95,7 +95,7 @@ void AudioPlaySerialFlash::play(const unsigned int data)
 	prior = 0;
 	next = 0;
 	beginning = data + 4;
-	length =__builtin_bswap16(SPIFIFO.read());
+	length =__REV16(SPIFIFO.read());
 	temp = SPIFIFO.read();
 	length |= (temp & 0xff00) << 8;
 	__disable_irq();
@@ -206,7 +206,7 @@ void AudioPlaySerialFlash::update(void)
 
 		case 0x81: // 16 bit PCM, 44100 Hz	//13310 21608
 		for (i=0; i < AUDIO_BLOCK_SAMPLES; i++) {
-			a = __builtin_bswap16(SPIFIFO.read());
+			a = __REV16(SPIFIFO.read());
 			*out++ = a;
 			if (i < AUDIO_BLOCK_SAMPLES - 5) {SPIFIFO.write16(0,SPI_CONTINUE);}
 			else
@@ -217,8 +217,8 @@ void AudioPlaySerialFlash::update(void)
 
 		case 0x82: // 16 bits PCM, 22050 Hz		6930
 		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 4) {
-			s1 = __builtin_bswap16(SPIFIFO.read());
-			s2 = __builtin_bswap16(SPIFIFO.read());
+			s1 = __REV16(SPIFIFO.read());
+			s2 = __REV16(SPIFIFO.read());
 			*out++ = (s0 + s1) >> 1;
 			*out++ = s1;
 			*out++ = (s1 + s2) >> 1;
@@ -234,8 +234,8 @@ void AudioPlaySerialFlash::update(void)
 
 		case 0x83: // 16 bit PCM, 11025 Hz	3740
 		for (i=0; i < AUDIO_BLOCK_SAMPLES; i += 8) {
-			s1 = __builtin_bswap16(SPIFIFO.read());
-			s2 = __builtin_bswap16(SPIFIFO.read());
+			s1 = __REV16(SPIFIFO.read());
+			s2 = __REV16(SPIFIFO.read());
 			*out++ = (s0 * 3 + s1) >> 2;
 			*out++ = (s0 + s1)     >> 1;
 			*out++ = (s0 + s1 * 3) >> 2;
