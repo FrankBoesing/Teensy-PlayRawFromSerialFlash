@@ -36,7 +36,7 @@
 	Set SERIALFLASH_USE_SPIFIFO to 1 if you want to use the FIFO-functionalty, else 0
 	- this is experimental -
 */
-#define SERIALFLASH_USE_SPIFIFO 1
+#define SERIALFLASH_USE_SPIFIFO 0
 
 
 
@@ -49,7 +49,9 @@
 
 #if SERIALFLASH_USE_SPIFIFO
 #include <Arduino.h>
+#include <SPI.h>
 #include <SPIFIFO.h>
+#include "spi_interrupt.h"
 #else
 #include <SPI.h>
 #include "spi_interrupt.h"
@@ -77,12 +79,12 @@ private:
 #if !SERIALFLASH_USE_SPIFIFO
 	SPISettings spisettings;
 #endif
-	unsigned int next;
-	unsigned int beginning;
-	uint32_t length;
-	int16_t prior;
-	uint8_t playing;
-	bool paused;
+	volatile unsigned int next;
+	volatile unsigned int beginning;
+	volatile uint32_t length;
+	volatile int16_t prior;
+	volatile uint8_t playing;
+	volatile bool paused;
 	//bool loops;
 	void flash_init(void);
 	//uint32_t cyc;
