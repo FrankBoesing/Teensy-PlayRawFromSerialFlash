@@ -209,9 +209,9 @@ void AudioPlaySerialFlash::update(void)
 		for (i=0; i < AUDIO_BLOCK_SAMPLES; i++) {
 			a = __REV16(SPIFIFO.read());
 			*out++ = a;
-			if (i < AUDIO_BLOCK_SAMPLES - 4) {SPIFIFO.write16(0,SPI_CONTINUE);}
-			else
-			if (i == AUDIO_BLOCK_SAMPLES - 4) {SPIFIFO.write16(0);}
+ if (i < AUDIO_BLOCK_SAMPLES - 5) {SPIFIFO.write16(0,SPI_CONTINUE);}
+ else
+ if (i < AUDIO_BLOCK_SAMPLES - 4) {SPIFIFO.write16(0);} 
 		}
 		consumed = 256;
 		break;
