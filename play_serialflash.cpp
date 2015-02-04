@@ -41,7 +41,7 @@ extern const int16_t ulaw_decode_table[256];
 
 #define SPICLOCK_MAX ((SPI_CTAR_PBR(0) | SPI_CTAR_BR(0) | SPI_CTAR_DBR)) // F_BUS/2 MHz
 
-static bool spiInitialized = false;
+
 void AudioPlaySerialFlash::flashinit(void)
 {
 #if AUDIOBOARD == 1
@@ -72,9 +72,6 @@ inline void AudioPlaySerialFlash::readSerStart(const size_t position)
 	Serial.printf("memoryType = %x\r\n",SPIFIFO.read());
 	Serial.printf("capacity = %x\r\n",SPIFIFO.read());
 #endif
-//	SPIFIFO.clear();
-//	delayMicroseconds(10);
-	//SPIFIFO.begin(SERFLASH_CS, SPICLOCK_MAX);
 	SPIFIFO.write16((0xb00 | ((position>>16) & 0xff)), SPI_CONTINUE);//CMD_READ_HIGH_SPEED
 	SPIFIFO.write16( position, SPI_CONTINUE);
 	SPIFIFO.write(0,SPI_CONTINUE);
@@ -90,19 +87,17 @@ void AudioPlaySerialFlash::play(const unsigned int data)
 	AudioStartUsingSPI();
 	__disable_irq();
 	readSerStart(data);
-	SPIFIFO.write16(0,SPI_CONTINUE);
-	SPIFIFO.write16(0,SPI_CONTINUE);
+	SPIFIFO.write16(0x00,SPI_CONTINUE);
+	SPIFIFO.write16(0x00);
 	prior = 0;
 	next = 0;
 	beginning = data + 4;
 	length =__REV16(SPIFIFO.read());
 	temp = SPIFIFO.read();
 	length |= (temp & 0xff00) << 8;
-	
 	playing = temp & 0xff;
 	__enable_irq();
 	//Serial.printf("Length:0x%x Mode: 0x%x\r\n", length, playing);
-	//delay(30);
 }
 
 void AudioPlaySerialFlash::update(void)
@@ -113,9 +108,11 @@ void AudioPlaySerialFlash::update(void)
 	int16_t s0, s1, s2, s3, s4;
 	uint16_t a;
 	int i;
-
+	uint8_t p;
+		
 	if (paused) return;
-	if (!playing) return;
+	p = playing;
+	if (!p) return;
 
 	block = allocate();
 	if (block == NULL) return;
@@ -133,7 +130,8 @@ void AudioPlaySerialFlash::update(void)
 	out = block->data;
 	s0 = prior;
 
-	switch (playing) {
+if (p<=0x03)	
+	switch (p) {
 
 	  case 0x01: // u-law encoded, 44100 Hz		//3667 cycles 6925
 		for (i=0; i < AUDIO_BLOCK_SAMPLES; i+=2) {
@@ -204,14 +202,17 @@ void AudioPlaySerialFlash::update(void)
 		}
 		consumed = 32;
 		break;
+	}
+else 
+	switch(p) {
 
 		case 0x81: // 16 bit PCM, 44100 Hz	//13310 21608
 		for (i=0; i < AUDIO_BLOCK_SAMPLES; i++) {
 			a = __REV16(SPIFIFO.read());
 			*out++ = a;
- if (i < AUDIO_BLOCK_SAMPLES - 5) {SPIFIFO.write16(0,SPI_CONTINUE);}
- else
- if (i < AUDIO_BLOCK_SAMPLES - 4) {SPIFIFO.write16(0);} 
+			if (i < AUDIO_BLOCK_SAMPLES - 5) {SPIFIFO.write16(0,SPI_CONTINUE);}
+			else
+			if (i < AUDIO_BLOCK_SAMPLES - 4) {SPIFIFO.write16(0);} 
 		}
 		consumed = 256;
 		break;
@@ -341,11 +342,9 @@ void AudioPlaySerialFlash::stop(void)
 	paused = false;
 	if (playing) {
 		playing = 0;
-		__enable_irq();
-		//Serial.printf("%d cycles\r\n",cyc);
-//#if !SERIALFLASH_USE_SPIFIFO
+		//Serial.printf("Next:%d",next);
+		__enable_irq();		
 		AudioStopUsingSPI();
-//#endif
 	} else
 	__enable_irq();
 }
@@ -502,25 +501,46 @@ void AudioPlaySerialFlash::update(void)
 #define B2M_22050 (uint32_t)((double)4294967296000.0 / AUDIO_SAMPLE_RATE_EXACT * 4.0)
 #define B2M_11025 (uint32_t)((double)4294967296000.0 / AUDIO_SAMPLE_RATE_EXACT * 8.0)
 
-uint32_t AudioPlaySerialFlash::calcMillis(uint32_t position)
+
+int AudioPlaySerialFlash::BytesConsumedPerUpdate(void)
 {
-  uint8_t p = playing;
-  uint32_t b2m = 0;
-  switch (p) {
-	  case 0x81: // 16 bit PCM, 44100 Hz
-		b2m = B2M_88200;  break;
-	  case 0x01: // u-law encoded, 44100 Hz
-	  case 0x82: // 16 bits PCM, 22050 Hz
-		b2m = B2M_44100;  break;
-	  case 0x02: // u-law encoded, 22050 Hz
-	  case 0x83: // 16 bit PCM, 11025 Hz
-		b2m = B2M_22050;  break;
-	  case 0x03: // u-law encoded, 11025 Hz
-		b2m = B2M_11025;  break;
-	}
-	return ((uint64_t)position * b2m) >> 32;
+	__disable_irq();
+	int p = playing;
+	__enable_irq();
+	int n = 32 << (3-(p & 0x03));
+	if (p & 0x80) n*=2;	
+	return n;
 }
 
+uint32_t AudioPlaySerialFlash::b2m(void)
+{
+  uint32_t b;
+  __disable_irq();
+  uint8_t p= playing;
+  __enable_irq();  
+  switch (p) {
+	  case 0x81: // 16 bit PCM, 44100 Hz
+		b = B2M_88200;  break;
+	  case 0x01: // u-law encoded, 44100 Hz
+	  case 0x82: // 16 bits PCM, 22050 Hz
+		b = B2M_44100;  break;
+	  case 0x02: // u-law encoded, 22050 Hz
+	  case 0x83: // 16 bit PCM, 11025 Hz
+		b = B2M_22050;  break;
+	  case 0x03: // u-law encoded, 11025 Hz
+		b = B2M_11025;  break;
+	  default:
+	    b = 0; break;
+	}
+	return b;
+}
+
+uint32_t AudioPlaySerialFlash::calcMillis(uint32_t position)
+{
+	return ((uint64_t)position * b2m()) >> 32;
+}
+
+//returns millisconds since start
 uint32_t AudioPlaySerialFlash::positionMillis(void)
 {
 	__disable_irq();
@@ -529,17 +549,19 @@ uint32_t AudioPlaySerialFlash::positionMillis(void)
 	return calcMillis(n - beginning);
 }
 
-
+//returns length of file in milliseconds
 uint32_t AudioPlaySerialFlash::lengthMillis(void)
 {
 	return calcMillis(length);
 }
 
+//returns true when playing
 bool AudioPlaySerialFlash::isPlaying(void)
 {
 	return playing > 0;
 }
 
+//pauses playing
 bool AudioPlaySerialFlash::pause(bool _paused)
 {
 	__disable_irq();
@@ -548,3 +570,18 @@ bool AudioPlaySerialFlash::pause(bool _paused)
 	__enable_irq();
 	return p;
 }
+
+//set position in milliseconds
+/*
+void AudioPlaySerialFlash::setPositionMillis(const unsigned int millis)
+{
+	uint32_t n = ((uint64_t)millis<<32) / b2m();
+	if (n >= length -  BytesConsumedPerUpdate() ) stop();
+	else {
+		__disable_irq();
+		next = n;
+		__enable_irq();
+	}
+	Serial.printf("pu:%d",n);
+}
+*/

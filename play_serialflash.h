@@ -36,7 +36,7 @@
 	Set SERIALFLASH_USE_SPIFIFO to 1 if you want to use the FIFO-functionalty, else 0
 	- this is experimental -
 */
-#define SERIALFLASH_USE_SPIFIFO 0
+#define SERIALFLASH_USE_SPIFIFO 1
 
 
 
@@ -68,26 +68,24 @@ public:
 	bool pause(bool _paused);
 	uint32_t positionMillis(void);
 	uint32_t lengthMillis(void);
+	//void setPositionMillis(const unsigned int millis);
 	virtual void update(void);
 protected:
-	void flashinit(void);
-	void readSerFlash(uint8_t* buffer, const size_t position, const size_t bytes);
-	void readSerStart(const size_t position);
-	void readSerDone(void);
-	uint32_t calcMillis(uint32_t position);
+	void flashinit(void);	
+	inline void readSerStart(const size_t position) __attribute__((always_inline));
+	inline void readSerDone(void) __attribute__((always_inline));
 private:
-#if !SERIALFLASH_USE_SPIFIFO
 	SPISettings spisettings;
-#endif
-	volatile unsigned int next;
-	volatile unsigned int beginning;
-	volatile uint32_t length;
-	volatile int16_t prior;
+	unsigned int next;
+	unsigned int beginning;
+	uint32_t length;
+	int16_t prior;
 	volatile uint8_t playing;
-	volatile bool paused;
-	//bool loops;
-	void flash_init(void);
+	volatile bool paused;	
 	//uint32_t cyc;
+	inline uint32_t b2m(void) __attribute__((always_inline));
+	inline uint32_t calcMillis(uint32_t position) __attribute__((always_inline));
+	inline int BytesConsumedPerUpdate(void)  __attribute__((always_inline));	
 };
 
 #endif
