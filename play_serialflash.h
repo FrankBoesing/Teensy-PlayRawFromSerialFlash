@@ -68,7 +68,7 @@ public:
 	bool pause(bool _paused);
 	uint32_t positionMillis(void);
 	uint32_t lengthMillis(void);
-	//void setPositionMillis(const unsigned int millis);
+	void setPositionMillis(const unsigned int millis);
 	virtual void update(void);
 protected:
 	void flashinit(void);	

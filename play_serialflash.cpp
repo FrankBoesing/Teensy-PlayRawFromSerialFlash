@@ -571,12 +571,14 @@ bool AudioPlaySerialFlash::pause(bool _paused)
 	return p;
 }
 
-//set position in milliseconds
-/*
+//set position in milliseconds in 2.9ms steps.
+//
 void AudioPlaySerialFlash::setPositionMillis(const unsigned int millis)
 {
 	uint32_t n = ((uint64_t)millis<<32) / b2m();
-	if (n >= length -  BytesConsumedPerUpdate() ) stop();
+	int u = BytesConsumedPerUpdate();
+	n = n & ~(u-1);
+	if (n >= length -  u ) stop();
 	else {
 		__disable_irq();
 		next = n;
@@ -584,4 +586,3 @@ void AudioPlaySerialFlash::setPositionMillis(const unsigned int millis)
 	}
 	Serial.printf("pu:%d",n);
 }
-*/
