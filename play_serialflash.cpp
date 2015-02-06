@@ -584,5 +584,5 @@ void AudioPlaySerialFlash::setPositionMillis(const unsigned int millis)
 		next = n;
 		__enable_irq();
 	}
-	Serial.printf("pu:%d",n);
+	//Serial.printf("pu:%d",n);
 }
