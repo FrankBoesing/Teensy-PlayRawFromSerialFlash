@@ -24,7 +24,7 @@
  * THE SOFTWARE.
  */
 
-// Modified to play from Serial Flash (c) Frank Bösing, 2014/12, 2015
+// Plays from Serial Flash (c) Frank Bösing, 2014/12, 2015
 
 #ifndef play_serialflash_h_
 #define play_serialflash_h_
@@ -32,30 +32,14 @@
 	Set AUDIOBOARD to 1 if you use the PJRC-Audioboard, else 0
 */
 #define AUDIOBOARD 1
-/*
-	Set SERIALFLASH_USE_SPIFIFO to 1 if you want to use the FIFO-functionalty, else 0
-	- this is experimental -
-*/
-#define SERIALFLASH_USE_SPIFIFO 1
-
-
 
 #define SERFLASH_CS 			6	//Chip Select pin W25Q128FV SPI Flash
 
-
-
-
-#include <AudioStream.h>
-
-#if SERIALFLASH_USE_SPIFIFO
 #include <Arduino.h>
+#include <AudioStream.h>
 #include <SPI.h>
 #include <SPIFIFO.h>
 #include "spi_interrupt.h"
-#else
-#include <SPI.h>
-#include "spi_interrupt.h"
-#endif
 
 class AudioPlaySerialFlash : public AudioStream
 {
@@ -66,8 +50,11 @@ public:
 	void stop(void);
 	bool isPlaying(void);
 	bool pause(bool _paused);
+	uint32_t position(void);
 	uint32_t positionMillis(void);
+	uint32_t length(void);
 	uint32_t lengthMillis(void);
+//	void setPosition(const unsigned int n);
 	void setPositionMillis(const unsigned int millis);
 	virtual void update(void);
 protected:
@@ -76,16 +63,16 @@ protected:
 	inline void readSerDone(void) __attribute__((always_inline));
 private:
 	SPISettings spisettings;
-	unsigned int next;
+	unsigned int sample;
 	unsigned int beginning;
-	uint32_t length;
-	int16_t prior;
+	unsigned int len;
+	unsigned int b16; //Flag: 1=16-Bit Samples, 0 = 8-Bit Samples
+	unsigned short prior;	
 	volatile uint8_t playing;
 	volatile bool paused;	
-	//uint32_t cyc;
 	inline uint32_t b2m(void) __attribute__((always_inline));
 	inline uint32_t calcMillis(uint32_t position) __attribute__((always_inline));
-	inline int BytesConsumedPerUpdate(void)  __attribute__((always_inline));	
+	int SamplesConsumedPerUpdate(void);
 };
 
 #endif
